@@ -33,3 +33,12 @@ test_venv/
 htmlcov/
 .coverage
 .pytest_cache/
+
+# Next.js
+.next/
+out/
+node_modules/
+package-lock.json
+
+# Generated posters
+posters/
