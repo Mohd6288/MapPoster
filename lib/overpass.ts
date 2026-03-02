@@ -1,11 +1,17 @@
 import { BBox, OverpassResponse } from "./types";
 
-const OVERPASS_URL = "https://overpass-api.de/api/interpreter";
+const OVERPASS_SERVERS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+];
+
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000;
 
 /**
  * Calculate bounding box from center point + distance in meters.
- * Uses the same compensated_dist formula from the Python code:
- *   compensated_dist = dist * (max(h,w) / min(h,w)) / 4
+ * Uses the same compensated_dist formula from the Python code.
  */
 export function calculateBBox(
   lat: number,
@@ -20,7 +26,6 @@ export function calculateBBox(
       Math.min(heightInches, widthInches)) /
     4;
 
-  // Degrees per meter at given latitude
   const latDeg = compensatedDist / 111320;
   const lonDeg = compensatedDist / (111320 * Math.cos((lat * Math.PI) / 180));
 
@@ -42,7 +47,7 @@ function bboxString(bbox: BBox): string {
 export async function fetchRoads(bbox: BBox): Promise<OverpassResponse> {
   const bb = bboxString(bbox);
   const query = `
-[out:json][timeout:60];
+[out:json][timeout:90];
 (
   way["highway"~"motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|living_street|unclassified"](${bb});
 );
@@ -59,7 +64,7 @@ out skel qt;
 export async function fetchFeatures(bbox: BBox): Promise<OverpassResponse> {
   const bb = bboxString(bbox);
   const query = `
-[out:json][timeout:60];
+[out:json][timeout:90];
 (
   way["natural"~"water|bay|strait"](${bb});
   relation["natural"~"water|bay|strait"](${bb});
@@ -78,15 +83,66 @@ out skel qt;
 }
 
 async function overpassFetch(query: string): Promise<OverpassResponse> {
-  const res = await fetch(OVERPASS_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `data=${encodeURIComponent(query)}`,
-  });
+  let lastError: Error | null = null;
 
-  if (!res.ok) {
-    throw new Error(`Overpass API error: ${res.status} ${res.statusText}`);
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    // Cycle through servers on retries
+    const serverUrl = OVERPASS_SERVERS[attempt % OVERPASS_SERVERS.length];
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+
+      const res = await fetch(serverUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (res.status === 429) {
+        // Rate limited — wait and try another server
+        lastError = new Error("Server busy, retrying...");
+        await delay(RETRY_DELAY_MS * (attempt + 1));
+        continue;
+      }
+
+      if (res.status === 504 || res.status === 503) {
+        // Gateway timeout or service unavailable — try another server
+        lastError = new Error("Server timeout, retrying...");
+        await delay(RETRY_DELAY_MS);
+        continue;
+      }
+
+      if (!res.ok) {
+        throw new Error(`Overpass API error: ${res.status} ${res.statusText}`);
+      }
+
+      return res.json();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        lastError = new Error(
+          "Request timed out. Try reducing the coverage distance."
+        );
+      } else if (err instanceof TypeError && err.message.includes("fetch")) {
+        lastError = new Error(
+          "Network error. Check your internet connection."
+        );
+      } else {
+        lastError = err instanceof Error ? err : new Error(String(err));
+      }
+
+      if (attempt < MAX_RETRIES - 1) {
+        await delay(RETRY_DELAY_MS);
+      }
+    }
   }
 
-  return res.json();
+  throw lastError || new Error("Failed to fetch map data after multiple attempts.");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
 }

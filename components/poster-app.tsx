@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Theme, GenerationStep } from "@/lib/types";
 import { themes } from "@/lib/themes";
 import { calculateBBox, fetchRoads, fetchFeatures } from "@/lib/overpass";
@@ -51,18 +51,36 @@ export default function PosterApp() {
   const [generationError, setGenerationError] = useState("");
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
 
+  // Mobile tab state
+  const [mobileTab, setMobileTab] = useState<"controls" | "preview">(
+    "controls"
+  );
+  const [isMobile, setIsMobile] = useState(false);
+
   // Canvas ref for export
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Handle font family change — load Google Font
+  // Detect mobile
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth <= 768);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
+  // Switch to preview on generation complete (mobile)
+  useEffect(() => {
+    if (isMobile && generationStep === "done" && blobUrl) {
+      setMobileTab("preview");
+    }
+  }, [isMobile, generationStep, blobUrl]);
+
   const handleFontFamilyChange = useCallback(async (family: string) => {
     setFontFamily(family);
-
     if (family.toLowerCase() === "roboto") {
       setFontStatus("ready");
       return;
     }
-
     setFontStatus("loading");
     try {
       await loadGoogleFont(family);
@@ -88,7 +106,7 @@ export default function PosterApp() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || "Geocoding failed");
+        throw new Error(data.error || "Location not found");
       }
 
       const data = await res.json();
@@ -111,12 +129,12 @@ export default function PosterApp() {
       setBlobUrl(null);
     }
     setGenerationError("");
+    setGenerationStep("fetching-roads");
 
     const effectiveCity = displayCity.trim() || city.trim();
     const effectiveCountry = displayCountry.trim() || country.trim();
 
     try {
-      // 1. Calculate bbox
       const bbox = calculateBBox(
         coords.lat,
         coords.lon,
@@ -125,28 +143,27 @@ export default function PosterApp() {
         height
       );
 
-      // 2. Load font if needed
+      // Load font if needed
       if (fontFamily.toLowerCase() !== "roboto") {
         await loadGoogleFont(fontFamily);
       }
 
-      // 3. Fetch roads and features in parallel
-      setGenerationStep("fetching-roads");
-      const roadsPromise = fetchRoads(bbox);
-      setGenerationStep("fetching-features");
-      const featuresPromise = fetchFeatures(bbox);
-
+      // Fetch in parallel
       const [roadsResponse, featuresResponse] = await Promise.all([
-        roadsPromise,
-        featuresPromise,
+        fetchRoads(bbox),
+        fetchFeatures(bbox).then((r) => {
+          setGenerationStep("fetching-features");
+          return r;
+        }),
       ]);
 
-      // 4. Parse responses
       const roads = parseRoads(roadsResponse);
       const polygons = parseFeatures(featuresResponse);
 
-      // 5. Render
       setGenerationStep("rendering");
+
+      // Small delay so UI can update
+      await new Promise((r) => setTimeout(r, 50));
 
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => {
@@ -178,7 +195,6 @@ export default function PosterApp() {
         });
       });
 
-      // 6. Export to blob for preview
       setGenerationStep("exporting");
       const url = await canvasToBlobURL(canvasRef.current!);
       setBlobUrl(url);
@@ -212,78 +228,108 @@ export default function PosterApp() {
 
     const filename = `${(displayCity.trim() || city.trim() || "poster").toLowerCase().replace(/\s+/g, "_")}_${selectedTheme.id}`;
 
-    if (format === "png") {
-      downloadPNG(canvas, filename);
-    } else if (format === "svg") {
-      downloadSVG(canvas, filename, width, height);
-    } else if (format === "pdf") {
-      downloadPDF(canvas, filename, width, height);
-    }
+    if (format === "png") downloadPNG(canvas, filename);
+    else if (format === "svg") downloadSVG(canvas, filename, width, height);
+    else if (format === "pdf") downloadPDF(canvas, filename, width, height);
   }, [format, width, height, city, displayCity, selectedTheme.id]);
 
   const handleBackToPreview = useCallback(() => {
-    if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-    }
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
     setBlobUrl(null);
     setGenerationStep("idle");
   }, [blobUrl]);
 
+  const handleNewPoster = useCallback(() => {
+    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    setBlobUrl(null);
+    setGenerationStep("idle");
+    setGenerationError("");
+    if (isMobile) setMobileTab("controls");
+  }, [blobUrl, isMobile]);
+
   const effectiveCity = displayCity.trim() || city.trim();
   const effectiveCountry = displayCountry.trim() || country.trim();
 
+  const controlsHidden = isMobile && mobileTab !== "controls";
+  const previewHidden = isMobile && mobileTab !== "preview";
+
   return (
     <div className="app">
-      <ControlPanel
-        city={city}
-        onCityChange={setCity}
-        country={country}
-        onCountryChange={setCountry}
-        onGeocode={handleGeocode}
-        coords={coords}
-        geocodeError={geocodeError}
-        isGeocoding={isGeocoding}
-        themes={themes}
-        selectedTheme={selectedTheme}
-        onThemeSelect={setSelectedTheme}
-        distance={distance}
-        onDistanceChange={setDistance}
-        width={width}
-        onWidthChange={setWidth}
-        height={height}
-        onHeightChange={setHeight}
-        format={format}
-        onFormatChange={setFormat}
-        displayCity={displayCity}
-        onDisplayCityChange={setDisplayCity}
-        displayCountry={displayCountry}
-        onDisplayCountryChange={setDisplayCountry}
-        fontFamily={fontFamily}
-        onFontFamilyChange={handleFontFamilyChange}
-        fontSizeScale={fontSizeScale}
-        onFontSizeScaleChange={setFontSizeScale}
-        letterSpacingScale={letterSpacingScale}
-        onLetterSpacingScaleChange={setLetterSpacingScale}
-        roadWidthMultiplier={roadWidthMultiplier}
-        onRoadWidthMultiplierChange={setRoadWidthMultiplier}
-        fontStatus={fontStatus}
-        onGenerate={handleGenerate}
-        onDownload={handleDownload}
-        generationStep={generationStep}
-        generationError={generationError}
-        canGenerate={!!coords}
-        hasOutput={generationStep === "done" && !!blobUrl}
-      />
-      <PreviewPanel
-        theme={selectedTheme}
-        city={effectiveCity}
-        country={effectiveCountry}
-        lat={coords?.lat ?? null}
-        lon={coords?.lon ?? null}
-        blobUrl={blobUrl}
-        fontFamily={fontFamily}
-        onBackToPreview={handleBackToPreview}
-      />
+      {/* Mobile tab bar */}
+      <div className="mobile-tabs">
+        <button
+          className={`mobile-tab${mobileTab === "controls" ? " active" : ""}`}
+          onClick={() => setMobileTab("controls")}
+        >
+          Settings
+        </button>
+        <button
+          className={`mobile-tab${mobileTab === "preview" ? " active" : ""}`}
+          onClick={() => setMobileTab("preview")}
+        >
+          Preview
+        </button>
+      </div>
+
+      <div className={controlsHidden ? "panel-hidden-mobile" : ""} style={controlsHidden ? undefined : { display: "contents" }}>
+        <ControlPanel
+          city={city}
+          onCityChange={setCity}
+          country={country}
+          onCountryChange={setCountry}
+          onGeocode={handleGeocode}
+          coords={coords}
+          geocodeError={geocodeError}
+          isGeocoding={isGeocoding}
+          themes={themes}
+          selectedTheme={selectedTheme}
+          onThemeSelect={setSelectedTheme}
+          distance={distance}
+          onDistanceChange={setDistance}
+          width={width}
+          onWidthChange={setWidth}
+          height={height}
+          onHeightChange={setHeight}
+          format={format}
+          onFormatChange={setFormat}
+          displayCity={displayCity}
+          onDisplayCityChange={setDisplayCity}
+          displayCountry={displayCountry}
+          onDisplayCountryChange={setDisplayCountry}
+          fontFamily={fontFamily}
+          onFontFamilyChange={handleFontFamilyChange}
+          fontSizeScale={fontSizeScale}
+          onFontSizeScaleChange={setFontSizeScale}
+          letterSpacingScale={letterSpacingScale}
+          onLetterSpacingScaleChange={setLetterSpacingScale}
+          roadWidthMultiplier={roadWidthMultiplier}
+          onRoadWidthMultiplierChange={setRoadWidthMultiplier}
+          fontStatus={fontStatus}
+          onGenerate={handleGenerate}
+          onDownload={handleDownload}
+          generationStep={generationStep}
+          generationError={generationError}
+          canGenerate={!!coords}
+          hasOutput={generationStep === "done" && !!blobUrl}
+        />
+      </div>
+
+      <div className={previewHidden ? "panel-hidden-mobile" : ""} style={previewHidden ? undefined : { display: "contents" }}>
+        <PreviewPanel
+          theme={selectedTheme}
+          city={effectiveCity}
+          country={effectiveCountry}
+          lat={coords?.lat ?? null}
+          lon={coords?.lon ?? null}
+          blobUrl={blobUrl}
+          fontFamily={fontFamily}
+          onBackToPreview={handleBackToPreview}
+          onNewPoster={handleNewPoster}
+          onDownload={handleDownload}
+          format={format}
+          hasOutput={generationStep === "done" && !!blobUrl}
+        />
+      </div>
     </div>
   );
 }

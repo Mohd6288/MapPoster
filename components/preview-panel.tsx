@@ -11,6 +11,10 @@ interface PreviewPanelProps {
   blobUrl: string | null;
   fontFamily: string;
   onBackToPreview: () => void;
+  onNewPoster: () => void;
+  onDownload: () => void;
+  format: string;
+  hasOutput: boolean;
 }
 
 function isLatin(text: string): boolean {
@@ -35,9 +39,13 @@ export default function PreviewPanel({
   blobUrl,
   fontFamily,
   onBackToPreview,
+  onNewPoster,
+  onDownload,
+  format,
+  hasOutput,
 }: PreviewPanelProps) {
-  // If we have a rendered output, show it
-  if (blobUrl) {
+  // Rendered output view
+  if (blobUrl && hasOutput) {
     return (
       <div className="panel-preview">
         <div className="output-view">
@@ -48,8 +56,14 @@ export default function PreviewPanel({
             className="canvas-output"
           />
           <div className="output-actions">
+            <button className="btn btn-download" onClick={onDownload}>
+              Download {format.toUpperCase()}
+            </button>
             <button className="btn btn-ghost" onClick={onBackToPreview}>
-              Back to preview
+              Edit
+            </button>
+            <button className="btn btn-ghost" onClick={onNewPoster}>
+              New Poster
             </button>
           </div>
         </div>
@@ -103,9 +117,7 @@ export default function PreviewPanel({
       <div className="preview-frame">
         <div
           className="preview-poster"
-          style={{
-            backgroundColor: theme.bg,
-          }}
+          style={{ backgroundColor: theme.bg }}
         >
           <div className="preview-roads">
             {roadColors.map((color, i) => {
