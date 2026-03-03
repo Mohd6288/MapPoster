@@ -3,11 +3,11 @@
 import { GenerationStep } from "@/lib/types";
 
 const STEPS: { key: GenerationStep; label: string }[] = [
-  { key: "fetching-roads", label: "Fetching roads..." },
-  { key: "fetching-features", label: "Fetching features..." },
-  { key: "rendering", label: "Rendering poster..." },
-  { key: "exporting", label: "Exporting..." },
-  { key: "done", label: "Done!" },
+  { key: "fetching-roads", label: "Fetching road network..." },
+  { key: "fetching-features", label: "Loading water & parks..." },
+  { key: "rendering", label: "Drawing your poster..." },
+  { key: "exporting", label: "Preparing image..." },
+  { key: "done", label: "Your poster is ready!" },
 ];
 
 interface ProgressBarProps {

@@ -48,7 +48,7 @@ export default function PreviewPanel({
   if (blobUrl && hasOutput) {
     return (
       <div className="panel-preview">
-        <div className="output-view">
+        <div className="output-view success-flash">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={blobUrl}

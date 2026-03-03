@@ -119,10 +119,17 @@ body {
   font-size: 22px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  background: linear-gradient(135deg, var(--text) 0%, var(--accent) 100%);
+  background: linear-gradient(135deg, var(--text) 0%, var(--accent) 50%, var(--text) 100%);
+  background-size: 200% 200%;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  animation: logoShift 8s ease-in-out infinite alternate;
+}
+
+@keyframes logoShift {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 100% 50%; }
 }
 
 .tagline {
@@ -582,17 +589,18 @@ input[type="range"]::-webkit-slider-thumb {
 }
 
 .progress-step.active {
-  background: var(--accent);
-  animation: progressPulse 1.5s ease infinite;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--accent-hover) 50%, var(--accent) 100%);
+  background-size: 200% 100%;
+  animation: progressShimmer 1.5s ease infinite;
 }
 
 .progress-step.done {
   background: var(--success);
 }
 
-@keyframes progressPulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+@keyframes progressShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 .progress-label {
@@ -628,13 +636,18 @@ input[type="range"]::-webkit-slider-thumb {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(
-    circle at 1px 1px,
-    rgba(255, 255, 255, 0.03) 1px,
-    transparent 0
-  );
-  background-size: 24px 24px;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.03) 1px, transparent 0),
+    radial-gradient(ellipse at 20% 50%, rgba(108, 140, 255, 0.04) 0%, transparent 50%),
+    radial-gradient(ellipse at 80% 50%, rgba(108, 140, 255, 0.03) 0%, transparent 50%);
+  background-size: 24px 24px, 100% 100%, 100% 100%;
   pointer-events: none;
+  animation: subtleShift 20s ease-in-out infinite alternate;
+}
+
+@keyframes subtleShift {
+  0% { background-position: 0 0, 20% 50%, 80% 50%; }
+  100% { background-position: 0 0, 30% 40%, 70% 60%; }
 }
 
 .preview-frame {
@@ -888,4 +901,41 @@ input[type="range"]::-webkit-slider-thumb {
     flex-direction: column;
     gap: 6px;
   }
+}
+
+/* ── Success animation ────────────────────────────────────────── */
+.success-flash {
+  animation: successReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes successReveal {
+  0% { opacity: 0; transform: scale(0.92); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.success-flash .canvas-output {
+  animation: posterSlideUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
+}
+
+@keyframes posterSlideUp {
+  0% { opacity: 0; transform: translateY(20px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Footer ───────────────────────────────────────────────────── */
+.panel-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-wrap: wrap;
+}
+
+.footer-sep {
+  opacity: 0.5;
 }

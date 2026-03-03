@@ -48,6 +48,7 @@ interface ControlPanelProps {
 
   // Generation
   onGenerate: () => void;
+  onCancel: () => void;
   onDownload: () => void;
   generationStep: GenerationStep;
   generationError: string;
@@ -69,8 +70,10 @@ export default function ControlPanel(props: ControlPanelProps) {
     <div className="panel-controls">
       {/* Logo */}
       <div className="logo-area">
-        <div className="logo">Map Poster</div>
-        <div className="tagline">Beautiful map posters of any city</div>
+        <div className="logo">MapToPoster</div>
+        <div className="tagline">
+          Crafted by <strong>Mohammed Alkhalifa</strong> &middot; Dammam, SA
+        </div>
       </div>
 
       {/* Location */}
@@ -159,13 +162,22 @@ export default function ControlPanel(props: ControlPanelProps) {
 
       {/* Generate / Download */}
       <div className="action-area">
-        <button
-          className="btn btn-primary btn-full"
-          onClick={props.onGenerate}
-          disabled={!props.canGenerate || isGenerating}
-        >
-          {isGenerating ? "Generating..." : "Generate Poster"}
-        </button>
+        {isGenerating ? (
+          <button
+            className="btn btn-secondary btn-full"
+            onClick={props.onCancel}
+          >
+            Cancel
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary btn-full"
+            onClick={props.onGenerate}
+            disabled={!props.canGenerate}
+          >
+            Generate Poster
+          </button>
+        )}
 
         <ProgressBar
           step={props.generationStep}
@@ -180,6 +192,12 @@ export default function ControlPanel(props: ControlPanelProps) {
             Download {props.format.toUpperCase()}
           </button>
         )}
+      </div>
+
+      <div className="panel-footer">
+        <span>Made with care in Dammam, SA</span>
+        <span className="footer-sep">&middot;</span>
+        <span>Data from OpenStreetMap</span>
       </div>
     </div>
   );

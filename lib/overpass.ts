@@ -44,10 +44,10 @@ function bboxString(bbox: BBox): string {
 /**
  * Fetch roads from Overpass API.
  */
-export async function fetchRoads(bbox: BBox): Promise<OverpassResponse> {
+export async function fetchRoads(bbox: BBox, signal?: AbortSignal): Promise<OverpassResponse> {
   const bb = bboxString(bbox);
   const query = `
-[out:json][timeout:90];
+[out:json][timeout:30];
 (
   way["highway"~"motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|tertiary|tertiary_link|residential|living_street|unclassified"](${bb});
 );
@@ -55,16 +55,16 @@ out body;
 >;
 out skel qt;
 `;
-  return overpassFetch(query);
+  return overpassFetch(query, signal);
 }
 
 /**
  * Fetch water and park features from Overpass API.
  */
-export async function fetchFeatures(bbox: BBox): Promise<OverpassResponse> {
+export async function fetchFeatures(bbox: BBox, signal?: AbortSignal): Promise<OverpassResponse> {
   const bb = bboxString(bbox);
   const query = `
-[out:json][timeout:90];
+[out:json][timeout:30];
 (
   way["natural"~"water|bay|strait"](${bb});
   relation["natural"~"water|bay|strait"](${bb});
@@ -79,10 +79,10 @@ out body;
 >;
 out skel qt;
 `;
-  return overpassFetch(query);
+  return overpassFetch(query, signal);
 }
 
-async function overpassFetch(query: string): Promise<OverpassResponse> {
+async function overpassFetch(query: string, externalSignal?: AbortSignal): Promise<OverpassResponse> {
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -90,8 +90,15 @@ async function overpassFetch(query: string): Promise<OverpassResponse> {
     const serverUrl = OVERPASS_SERVERS[attempt % OVERPASS_SERVERS.length];
 
     try {
+      // Abort if caller cancels or timeout expires
+      if (externalSignal?.aborted) throw new DOMException("Aborted", "AbortError");
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+      // Forward external abort to our controller
+      const onExternalAbort = () => controller.abort();
+      externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
 
       const res = await fetch(serverUrl, {
         method: "POST",
@@ -101,6 +108,7 @@ async function overpassFetch(query: string): Promise<OverpassResponse> {
       });
 
       clearTimeout(timeoutId);
+      externalSignal?.removeEventListener("abort", onExternalAbort);
 
       if (res.status === 429) {
         // Rate limited — wait and try another server
@@ -122,6 +130,11 @@ async function overpassFetch(query: string): Promise<OverpassResponse> {
 
       return res.json();
     } catch (err) {
+      // If user cancelled, throw immediately — don't retry
+      if (externalSignal?.aborted) {
+        throw new DOMException("Generation cancelled", "AbortError");
+      }
+
       if (err instanceof DOMException && err.name === "AbortError") {
         lastError = new Error(
           "Request timed out. Try reducing the coverage distance."

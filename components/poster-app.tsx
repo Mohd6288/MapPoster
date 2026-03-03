@@ -15,6 +15,8 @@ import {
 import ControlPanel from "./control-panel";
 import PreviewPanel from "./preview-panel";
 
+const MAX_CANVAS_DIM = 8000;
+
 export default function PosterApp() {
   // Location state
   const [city, setCity] = useState("");
@@ -59,6 +61,8 @@ export default function PosterApp() {
 
   // Canvas ref for export
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Abort controller for cancellation
+  const abortRef = useRef<AbortController | null>(null);
 
   // Detect mobile
   useEffect(() => {
@@ -120,6 +124,13 @@ export default function PosterApp() {
     }
   }, [city, country]);
 
+  const handleCancel = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setGenerationStep("idle");
+    setGenerationError("");
+  }, []);
+
   const handleGenerate = useCallback(async () => {
     if (!coords) return;
 
@@ -130,6 +141,11 @@ export default function PosterApp() {
     }
     setGenerationError("");
     setGenerationStep("fetching-roads");
+
+    // Create abort controller for this generation
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const signal = controller.signal;
 
     const effectiveCity = displayCity.trim() || city.trim();
     const effectiveCountry = displayCountry.trim() || country.trim();
@@ -148,14 +164,18 @@ export default function PosterApp() {
         await loadGoogleFont(fontFamily);
       }
 
+      if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+
       // Fetch in parallel
       const [roadsResponse, featuresResponse] = await Promise.all([
-        fetchRoads(bbox),
-        fetchFeatures(bbox).then((r) => {
+        fetchRoads(bbox, signal),
+        fetchFeatures(bbox, signal).then((r) => {
           setGenerationStep("fetching-features");
           return r;
         }),
       ]);
+
+      if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
 
       const roads = parseRoads(roadsResponse);
       const polygons = parseFeatures(featuresResponse);
@@ -165,11 +185,19 @@ export default function PosterApp() {
       // Small delay so UI can update
       await new Promise((r) => setTimeout(r, 50));
 
+      // Cap canvas dimensions to prevent browser crash
+      let canvasWidth = Math.round(width * 300);
+      let canvasHeight = Math.round(height * 300);
+      const maxDim = Math.max(canvasWidth, canvasHeight);
+      if (maxDim > MAX_CANVAS_DIM) {
+        const scale = MAX_CANVAS_DIM / maxDim;
+        canvasWidth = Math.round(canvasWidth * scale);
+        canvasHeight = Math.round(canvasHeight * scale);
+      }
+
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => {
           const canvas = document.createElement("canvas");
-          const canvasWidth = Math.round(width * 300);
-          const canvasHeight = Math.round(height * 300);
 
           renderPoster(canvas, {
             theme: selectedTheme,
@@ -195,15 +223,37 @@ export default function PosterApp() {
         });
       });
 
+      if (signal.aborted) throw new DOMException("Cancelled", "AbortError");
+
       setGenerationStep("exporting");
       const url = await canvasToBlobURL(canvasRef.current!);
       setBlobUrl(url);
       setGenerationStep("done");
     } catch (err) {
-      setGenerationError(
-        err instanceof Error ? err.message : "Generation failed"
+      let errorMessage = "Generation failed. Please try again.";
+
+      if (err instanceof DOMException && err.name === "AbortError") {
+        errorMessage = "Generation cancelled.";
+      } else if (err instanceof Error) {
+        if (err.message.includes("timed out") || err.message.includes("timeout")) {
+          errorMessage = "Request timed out. Try reducing the coverage distance or choosing a smaller area.";
+        } else if (err.message.includes("Network") || err.message.includes("fetch")) {
+          errorMessage = "Network error. Check your internet connection and try again.";
+        } else if (err.message.includes("429") || err.message.includes("busy")) {
+          errorMessage = "Map servers are busy. Please wait a moment and try again.";
+        } else if (err.message.includes("blob") || err.message.includes("canvas")) {
+          errorMessage = "Failed to render poster. Try a smaller poster size.";
+        } else {
+          errorMessage = err.message;
+        }
+      }
+
+      setGenerationError(errorMessage);
+      setGenerationStep(
+        err instanceof DOMException && err.name === "AbortError" ? "idle" : "error"
       );
-      setGenerationStep("error");
+    } finally {
+      abortRef.current = null;
     }
   }, [
     coords,
@@ -306,6 +356,7 @@ export default function PosterApp() {
           onRoadWidthMultiplierChange={setRoadWidthMultiplier}
           fontStatus={fontStatus}
           onGenerate={handleGenerate}
+          onCancel={handleCancel}
           onDownload={handleDownload}
           generationStep={generationStep}
           generationError={generationError}

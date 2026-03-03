@@ -121,22 +121,24 @@ export async function loadGoogleFont(family: string): Promise<void> {
   if (!family || family.toLowerCase() === "roboto") return;
 
   const id = `gfont-${family.replace(/\s+/g, "-").toLowerCase()}`;
-  if (document.getElementById(id)) {
-    // Already loaded, just wait for it to be available
-    await document.fonts.ready;
-    return;
+  if (!document.getElementById(id)) {
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@300;400;700&display=swap`;
+    document.head.appendChild(link);
   }
 
-  const link = document.createElement("link");
-  link.id = id;
-  link.rel = "stylesheet";
-  link.href = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@300;400;700&display=swap`;
-  document.head.appendChild(link);
+  // Race between font loading and 5s timeout
+  await Promise.race([
+    document.fonts.ready,
+    new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error("Font timed out")), 5000)
+    ),
+  ]).catch(() => {
+    console.warn(`Font "${family}" failed to load within 5s, using fallback`);
+  });
 
-  // Wait for the font to actually load
-  await document.fonts.ready;
-
-  // Give an extra moment for the font to register
   await new Promise((r) => setTimeout(r, 100));
 }
 
@@ -198,8 +200,13 @@ export function renderPoster(
     canvasHeight
   );
 
-  // === Layer 1: Roads ===
-  drawRoads(ctx, roads, theme, bounds, canvasWidth, canvasHeight, roadWidthMultiplier);
+  // === Layer 1: Roads (pre-sorted by priority) ===
+  const sortedRoads = [...roads].sort((a, b) => {
+    const pa = ROAD_PRIORITY[a.highwayType] ?? 0;
+    const pb = ROAD_PRIORITY[b.highwayType] ?? 0;
+    return pa - pb;
+  });
+  drawRoads(ctx, sortedRoads, theme, bounds, canvasWidth, canvasHeight, roadWidthMultiplier);
 
   // === Layer 10: Gradient fades ===
   drawGradients(ctx, theme.gradient_color, canvasWidth, canvasHeight);
@@ -259,16 +266,10 @@ function drawRoads(
   ch: number,
   roadWidthMultiplier: number
 ): void {
-  const sorted = [...roads].sort((a, b) => {
-    const pa = ROAD_PRIORITY[a.highwayType] ?? 0;
-    const pb = ROAD_PRIORITY[b.highwayType] ?? 0;
-    return pa - pb;
-  });
-
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
-  for (const road of sorted) {
+  for (const road of roads) {
     if (road.nodes.length < 2) continue;
 
     ctx.strokeStyle = getRoadColor(road.highwayType, theme);

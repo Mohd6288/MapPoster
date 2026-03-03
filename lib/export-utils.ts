@@ -6,7 +6,6 @@ export function downloadPNG(canvas: HTMLCanvasElement, filename: string): void {
     if (!blob) return;
     const url = URL.createObjectURL(blob);
     triggerDownload(url, filename.replace(/\.\w+$/, "") + ".png");
-    URL.revokeObjectURL(url);
   }, "image/png");
 }
 
@@ -55,7 +54,6 @@ export function downloadSVG(
   const blob = new Blob([svg], { type: "image/svg+xml" });
   const url = URL.createObjectURL(blob);
   triggerDownload(url, filename.replace(/\.\w+$/, "") + ".svg");
-  URL.revokeObjectURL(url);
 }
 
 /**
@@ -77,4 +75,6 @@ function triggerDownload(url: string, filename: string): void {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+  // Delay revocation so browser has time to initiate the download
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }

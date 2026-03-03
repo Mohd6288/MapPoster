@@ -14,11 +14,17 @@ export async function POST(req: NextRequest) {
     const query = encodeURIComponent(`${city}, ${country}`);
     const url = `https://nominatim.openstreetmap.org/search?q=${query}&format=json&limit=1`;
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
     const res = await fetch(url, {
       headers: {
         "User-Agent": "MapToPoster/1.0",
       },
+      signal: controller.signal,
     });
+
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       return NextResponse.json(
@@ -41,7 +47,13 @@ export async function POST(req: NextRequest) {
       lon: parseFloat(data[0].lon),
       display_name: data[0].display_name,
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") {
+      return NextResponse.json(
+        { error: "Location lookup timed out. Please try again." },
+        { status: 504 }
+      );
+    }
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -140,6 +140,7 @@ function resolveNodes(
 
 /**
  * Join disconnected way segments into closed rings by matching endpoints.
+ * Uses Map-based index for O(n) amortized lookups instead of O(n^2) linear scan.
  */
 function joinWaysIntoRings(
   ways: number[][],
@@ -148,50 +149,81 @@ function joinWaysIntoRings(
   if (ways.length === 0) return [];
 
   const rings: LatLon[][] = [];
-  const remaining = ways.map((w) => [...w]);
+  const wayData = ways.map((w) => [...w]);
 
-  while (remaining.length > 0) {
-    const current = remaining.shift()!;
+  // Index ways by their first and last node IDs for O(1) lookup
+  const byFirst = new Map<number, number[]>();
+  const byLast = new Map<number, number[]>();
 
+  for (let i = 0; i < wayData.length; i++) {
+    const w = wayData[i];
+    const first = w[0];
+    const last = w[w.length - 1];
+    if (!byFirst.has(first)) byFirst.set(first, []);
+    byFirst.get(first)!.push(i);
+    if (!byLast.has(last)) byLast.set(last, []);
+    byLast.get(last)!.push(i);
+  }
+
+  const used = new Set<number>();
+
+  for (let startIdx = 0; startIdx < wayData.length; startIdx++) {
+    if (used.has(startIdx)) continue;
+    used.add(startIdx);
+    idxRemove(byFirst, wayData[startIdx][0], startIdx);
+    idxRemove(byLast, wayData[startIdx][wayData[startIdx].length - 1], startIdx);
+
+    const current = wayData[startIdx];
     let changed = true;
     while (changed) {
       changed = false;
       const first = current[0];
       const last = current[current.length - 1];
-
-      // Check if closed
       if (first === last && current.length > 3) break;
 
-      for (let i = 0; i < remaining.length; i++) {
-        const other = remaining[i];
-        const otherFirst = other[0];
-        const otherLast = other[other.length - 1];
-
-        if (last === otherFirst) {
-          // Append other (skip duplicate node)
-          current.push(...other.slice(1));
-          remaining.splice(i, 1);
-          changed = true;
-          break;
-        } else if (last === otherLast) {
-          // Append reversed other
-          current.push(...other.slice(0, -1).reverse());
-          remaining.splice(i, 1);
-          changed = true;
-          break;
-        } else if (first === otherLast) {
-          // Prepend other
-          current.unshift(...other.slice(0, -1));
-          remaining.splice(i, 1);
-          changed = true;
-          break;
-        } else if (first === otherFirst) {
-          // Prepend reversed other
-          current.unshift(...other.slice(1).reverse());
-          remaining.splice(i, 1);
-          changed = true;
-          break;
-        }
+      // Extend from end: find way starting with `last`
+      let match = idxFind(byFirst, last, used);
+      if (match !== -1) {
+        const other = wayData[match];
+        used.add(match);
+        idxRemove(byFirst, other[0], match);
+        idxRemove(byLast, other[other.length - 1], match);
+        current.push(...other.slice(1));
+        changed = true;
+        continue;
+      }
+      // Find way ending with `last` (append reversed)
+      match = idxFind(byLast, last, used);
+      if (match !== -1) {
+        const other = wayData[match];
+        used.add(match);
+        idxRemove(byFirst, other[0], match);
+        idxRemove(byLast, other[other.length - 1], match);
+        current.push(...other.slice(0, -1).reverse());
+        changed = true;
+        continue;
+      }
+      // Extend from front: find way ending with `first`
+      match = idxFind(byLast, first, used);
+      if (match !== -1) {
+        const other = wayData[match];
+        used.add(match);
+        idxRemove(byFirst, other[0], match);
+        idxRemove(byLast, other[other.length - 1], match);
+        current.unshift(...other.slice(0, -1));
+        changed = true;
+        continue;
+      }
+      // Find way starting with `first` (prepend reversed)
+      match = idxFind(byFirst, first, used);
+      if (match !== -1) {
+        const other = wayData[match];
+        used.add(match);
+        idxRemove(byFirst, other[0], match);
+        idxRemove(byLast, other[other.length - 1], match);
+        current.unshift(...other.slice(1).reverse());
+        changed = true;
+        continue;
       }
     }
 
@@ -202,4 +234,21 @@ function joinWaysIntoRings(
   }
 
   return rings;
+}
+
+function idxRemove(index: Map<number, number[]>, key: number, val: number): void {
+  const arr = index.get(key);
+  if (!arr) return;
+  const idx = arr.indexOf(val);
+  if (idx !== -1) arr.splice(idx, 1);
+  if (arr.length === 0) index.delete(key);
+}
+
+function idxFind(index: Map<number, number[]>, key: number, used: Set<number>): number {
+  const arr = index.get(key);
+  if (!arr) return -1;
+  for (const i of arr) {
+    if (!used.has(i)) return i;
+  }
+  return -1;
 }

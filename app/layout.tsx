@@ -2,8 +2,9 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Map Poster",
-  description: "Generate beautiful map posters of any city",
+  title: "MapToPoster by Mohammed Alkhalifa",
+  description:
+    "Create beautiful, high-resolution map posters of any city in the world. A project by Mohammed Alkhalifa from Dammam, Saudi Arabia.",
 };
 
 export const viewport: Viewport = {
